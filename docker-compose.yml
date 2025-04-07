@@ -1,0 +1,71 @@
+services:
+  redis-master:
+    image: redis:latest
+    container_name: redis-master
+    ports:
+      - 6379:6379
+    volumes:
+      - ./configs/redis-master/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./configs/redis-master/logs:/var/log/redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-slave:
+    image: redis:latest
+    container_name: redis-slave
+    ports:
+      - 6380:6379
+    volumes:
+      - ./configs/redis-slave/redis.conf:/usr/local/etc/redis/redis.conf
+    depends_on:
+      - redis-master
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+
+  redis-sentinel:
+    image: redis:latest
+    container_name: redis-sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-slave:
+        condition: service_started
+    ports:
+      - 26379:26379
+    volumes:
+      - ./configs/sentinel/sentinel.conf:/usr/local/etc/redis/sentinel.conf
+    command: >
+      sh -c "until getent hosts redis-master; do echo 'Waiting for redis-master node'; sleep 1; done;
+            exec redis-sentinel /usr/local/etc/redis/sentinel.conf"
+
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    ports:
+      - 3306:3306
+    volumes:
+      - mysql_volume:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: root
+      MYSQL_DATABASE: db
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: ./api
+    container_name: api
+    ports:
+      - 3000:3000
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_volume:
